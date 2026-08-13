@@ -1,0 +1,5 @@
+.evidence { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+.evidence ol { color:var(--muted); line-height:1.7; padding-left:20px; }
+.note { color:var(--muted); font-size:12px; line-height:1.5; }
+.method::after { content:"Modelo conceptual, nao desenho de fabrico. Calado e estabilidade sao verificacoes parametricas preliminares; exigem validacao por engenheiro e ensaios fisicos."; display:block; margin-top:16px; padding-top:12px; border-top:1px solid var(--line); color:var(--alarm); font:11px Consolas,monospace; }
+@media (max-width:900px) { .evidence { grid-template-columns:1fr; } }
