@@ -1,0 +1,11 @@
+.event-rail {
+  min-height: 42px;
+  height: auto;
+  transition: height 120ms ease;
+}
+
+.event-rail span {
+  max-width: none;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
