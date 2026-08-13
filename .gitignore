@@ -4,10 +4,8 @@ command-center*.png
 survival-criteria.png
 visual-*.png
 
-# Protótipo 3D anterior não utilizado pela versão publicada
+# Imagem experimental anterior não utilizada pela versão publicada
 assets/
-vendor/
-scene.js
 
 # Ficheiros locais do sistema
 .DS_Store

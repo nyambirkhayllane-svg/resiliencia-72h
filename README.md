@@ -1,34 +1,30 @@
-# RESILIÊNCIA 72H — Centro de Comando Energético
+# LUZ ACIMA 72
 
-Aplicação web funcional para comparar uma microrrede convencional com uma solução resiliente durante 72 horas de evento climático extremo.
+Protótipo interativo de um sistema solar anfíbio para preservar cargas vitais durante 72 horas de inundação em Moçambique.
+
+## Modelo
+
+- Campo solar elevado de 2 kWp em duas séries.
+- Bateria LiFePO4 de 10 kWh e inversor de 2 kVA.
+- Orçamento P1/P2 de 2,25 kWh/dia.
+- Plataforma com quatro tambores HDPE de 200 L, guias verticais e cabo com laço de serviço.
+- Isolamento elétrico por geometria insegura, bloqueio, fuga ou falha de sensor.
+- Pack portátil independente para rádio/VHF e iluminação de emergência.
+
+Os valores são ilustrativos e devem ser validados por ensaios, projeto estrutural, proteção elétrica certificada e cotações locais.
 
 ## Executar
 
+Abra `index.html` ou inicie o servidor usado pelos testes:
+
 ```powershell
-python -m http.server 4173 --bind 127.0.0.1
+node tests/server.mjs
 ```
 
-Abrir `http://127.0.0.1:4173`.
+Depois aceda a `http://127.0.0.1:4173`.
 
-## Capacidades
+## Testes
 
-- Balanço energético horário determinístico para dois sistemas sob o mesmo clima e procura.
-- Limites de capacidade, reserva, eficiência e potência da bateria.
-- Biomassa limitada por potência, combustível, consumo específico, eficiência, humidade e disponibilidade.
-- Perfis e prioridades separados para saúde, água, comunicações, iluminação e outras cargas.
-- Estratégias de distribuição igual, eficiência energética e protecção da vida.
-- Energia crítica não servida e blackout mostrados sem ocultar resultados negativos.
-- Falhas injectadas com recálculo do plano.
-- Despacho de drones validado por janela meteorológica, vento, alcance, carga útil e kits.
-- Monte Carlo de 100, 500 ou 1.000 cenários com semente reproduzível e execução não bloqueante.
-- Exportação horária para CSV e modo de demonstração para o júri.
-- Metodologia, fórmulas e pressupostos visíveis na interface.
-
-## Estrutura
-
-- `engine.js`: motor energético e validação de missões.
-- `app.js`: estado, visualização, eventos, Monte Carlo e exportação.
-- `index.html`: estrutura do centro de comando.
-- `styles.css`: apresentação responsiva para computador e tablet.
-
-Os valores iniciais são hipóteses ilustrativas e precisam de substituição por dados técnicos validados antes de qualquer decisão de engenharia ou investimento.
+```powershell
+npm test
+```
