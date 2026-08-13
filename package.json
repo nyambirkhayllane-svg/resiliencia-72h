@@ -1,0 +1,13 @@
+{
+  "name": "resiliencia-72h",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:engine": "node --test tests/engine.test.mjs",
+    "test:browser": "node --test tests/browser.test.mjs",
+    "test": "node --test tests/engine.test.mjs tests/browser.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.54.2"
+  }
+}

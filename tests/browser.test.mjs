@@ -1,0 +1,16 @@
+import test, {before,after} from "node:test";
+import assert from "node:assert/strict";
+import {spawn} from "node:child_process";
+import {chromium} from "playwright-core";
+
+let server,browser;
+const url="http://127.0.0.1:4173";
+before(async()=>{server=spawn(process.execPath,["tests/server.mjs"],{stdio:"ignore"});await new Promise(r=>setTimeout(r,700));browser=await chromium.launch({headless:true,executablePath:"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"})});
+after(async()=>{await browser?.close();server?.kill()});
+async function pageAt(viewport){const page=await browser.newPage({viewportSize:viewport,acceptDownloads:true});const errors=[];page.on("console",m=>{if(m.type()==="error")errors.push(m.text())});page.on("pageerror",e=>errors.push(e.message));await page.goto(url);await page.waitForSelector("#timelineChart");return {page,errors}}
+
+for(const [name,viewport] of [["desktop",{width:1440,height:900}],["tablet",{width:820,height:1180}]])test(`renders without overflow or console errors on ${name}`,async()=>{const {page,errors}=await pageAt(viewport);const metrics=await page.evaluate(()=>({scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth,canvas:[...document.querySelectorAll("canvas")].every(c=>c.width>0&&c.height>0)}));assert.ok(metrics.scrollWidth<=metrics.clientWidth+1,JSON.stringify(metrics));assert.equal(metrics.canvas,true);assert.deepEqual(errors,[]);await page.close()});
+
+test("delivery updates the selected community and protected people",async()=>{const {page,errors}=await pageAt({width:1440,height:900});await page.fill("#wind","30");await page.fill("#flightWindow","0");await page.fill("#timeSlider","0");await page.selectOption("#kitType","comms");await page.click('[data-community="Mugema"]');const before=await page.locator("#resResults .coverage-unique b").textContent();await page.click("#dispatchBtn");await page.waitForFunction(()=>document.querySelector("#missionStatus")?.textContent.includes("autonomia adicional"),null,{timeout:8000});const log=await page.locator("#missionLog").textContent(),afterValue=await page.locator("#resResults .coverage-unique b").textContent();assert.match(log,/Mugema/);assert.match(log,/0,8 kWh úteis/);assert.notEqual(afterValue,before);assert.deepEqual(errors,[]);await page.close()});
+
+test("CSV values agree with the visible simulation",async()=>{const {page,errors}=await pageAt({width:1440,height:900});const visibleFuel=Number((await page.locator(".biomass-live span").first().locator("b").textContent()).replace(" kg","").replace(",",".")),downloadPromise=page.waitForEvent("download");await page.click("#exportBtn");const download=await downloadPromise,path=await download.path();const fs=await import("node:fs/promises"),csv=await fs.readFile(path,"utf8"),lines=csv.trim().split(/\r?\n/),header=lines[0].split(","),first=lines[1].split(","),resilientHour0=lines[73].split(","),fuelColumn=header.indexOf("combustivel_restante_kg");assert.equal(lines.length,145);assert.equal(first[0],"0");assert.equal(first[1],"convencional");assert.equal(resilientHour0[0],"0");assert.equal(resilientHour0[1],"resiliente");assert.ok(Math.abs(Number(resilientHour0[fuelColumn])-visibleFuel)<.11);assert.equal(await page.locator("#timeLabel").textContent(),"Hora 0");assert.deepEqual(errors,[]);await page.close()});
