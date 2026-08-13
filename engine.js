@@ -11,7 +11,7 @@ export const DEFAULTS = {
   solarKw: 28, solarEfficiency: 82, solarLoss: 14,
   batteryKwh: 140, initialSoc: 92, maxDod: 88, chargeEfficiency: 94, dischargeEfficiency: 92, maxChargeKw: 28, maxDischargeKw: 28, reserve: 12,
   biomassKw: 14, biomassKg: 290, specificConsumption: 1.05, biomassEfficiency: 78, biomassMin: 3, biomassAvailable: true, dailyFuelLimit: 110, wetFuel: false,
-  strategy: "vida", loads: LOADS.map(x => ({...x})), people: 1240, waterLitresPerKwh: 1650,
+  strategy: "vida", loads: LOADS.map(x => ({...x})), people: 1240, healthUsers: 180, minimumWaterLitresPerPersonDay: 15, waterLitresPerKwh: 1650,
   healthUptimeTarget: 99, commsUptimeTarget: 95, dailyWaterTargetLitres: 18600, maxCriticalBlackoutMinutes: 60
 };
 
@@ -108,13 +108,20 @@ export function simulate(input, type="resiliente") {
   const resilience=.4*up("saude")+.25*Math.min(100,waterServed/(p.people*15*3)*100)+.2*up("comms")+.15*isolatedScore;
   const survival={health:up("saude")>=p.healthUptimeTarget,comms:up("comms")>=p.commsUptimeTarget,water:waterByDay.length>=3&&waterByDay.slice(0,3).every(v=>v>=p.dailyWaterTargetLitres),blackout:maxCriticalBlackoutRun*60<=p.maxCriticalBlackoutMinutes};
   survival.joint=survival.health&&survival.comms&&survival.water&&survival.blackout;
+  const minimumDailyWater=Math.min(...waterByDay.slice(0,3));
+  const serviceCoverage={
+    water:Math.min(p.people,Math.floor(minimumDailyWater/p.minimumWaterLitresPerPersonDay)),
+    comms:survival.comms?p.people:0,
+    health:survival.health?Math.min(p.people,p.healthUsers):0
+  };
+  const uniquePeopleProtected=Math.max(serviceCoverage.water,serviceCoverage.comms,serviceCoverage.health);
   if(fuelExhaustedAt!==null){
     const criticalReference=firstCriticalBlackout??p.duration;
     const recalculatedAutonomy=Math.max(0,criticalReference-fuelExhaustedAt);
     events.push({t:Math.min(p.duration-1,Math.max(0,Math.floor(fuelExhaustedAt))),label:`Biomassa esgotada · autonomia crítica recalculada: ${recalculatedAutonomy.toFixed(1)} h`,kind:"fuel"});
   }
   events.sort((a,b)=>a.t-b.t);
-  return {series:result,events,diagnostics,summary:{firstBlackout:firstCriticalBlackout,healthUptime:up("saude"),commsUptime:up("comms"),waterLitres:waterServed,waterByDay,maxCriticalBlackoutMinutes:maxCriticalBlackoutRun*60,totalUnserved,criticalUnserved,finalSoc:battery/p.batteryKwh*100,biomassUsed,biomassRemaining:fuel,fuelExhaustedAt,resilience,peopleProtected:Math.round(p.people*isolatedScore/100),survival}};
+  return {series:result,events,diagnostics,summary:{firstBlackout:firstCriticalBlackout,healthUptime:up("saude"),commsUptime:up("comms"),waterLitres:waterServed,waterByDay,maxCriticalBlackoutMinutes:maxCriticalBlackoutRun*60,totalUnserved,criticalUnserved,finalSoc:battery/p.batteryKwh*100,biomassUsed,biomassRemaining:fuel,fuelExhaustedAt,resilience,serviceCoverage,uniquePeopleProtected,survival}};
 }
 
 export function compare(params){return {convencional:simulate(params,"convencional"),resiliente:simulate(params,"resiliente")};}
