@@ -11,7 +11,8 @@ export const DEFAULTS = {
   solarKw: 28, solarEfficiency: 82, solarLoss: 14,
   batteryKwh: 140, initialSoc: 92, maxDod: 88, chargeEfficiency: 94, dischargeEfficiency: 92, maxChargeKw: 28, maxDischargeKw: 28, reserve: 12,
   biomassKw: 14, biomassKg: 290, specificConsumption: 1.05, biomassEfficiency: 78, biomassMin: 3, biomassAvailable: true, dailyFuelLimit: 110, wetFuel: false,
-  strategy: "vida", loads: LOADS.map(x => ({...x})), people: 1240, waterLitresPerKwh: 1650
+  strategy: "vida", loads: LOADS.map(x => ({...x})), people: 1240, waterLitresPerKwh: 1650,
+  healthUptimeTarget: 99, commsUptimeTarget: 95, dailyWaterTargetLitres: 18600, maxCriticalBlackoutMinutes: 60
 };
 
 const daylight = h => h >= 6 && h <= 18 ? Math.sin(((h - 6) / 12) * Math.PI) : 0;
@@ -27,7 +28,7 @@ function orderLoads(loads, strategy) {
 export function simulate(input, type="resiliente") {
   const p = structuredClone(input), result = [], events = [];
   const usableFloor = Math.max((1-p.maxDod/100)*p.batteryKwh, p.reserve/100*p.batteryKwh);
-  let battery = p.batteryKwh*p.initialSoc/100, fuel=p.biomassKg, firstCriticalBlackout=null, totalUnserved=0, criticalUnserved=0, biomassUsed=0, curtailed=0;
+  let battery = p.batteryKwh*p.initialSoc/100, fuel=p.biomassKg, firstCriticalBlackout=null, totalUnserved=0, criticalUnserved=0, biomassUsed=0, curtailed=0, criticalBlackoutRun=0, maxCriticalBlackoutRun=0;
   const uptime=Object.fromEntries(p.loads.map(l=>[l.id,0])), requestedHours=Object.fromEntries(p.loads.map(l=>[l.id,0]));
   for(let t=0;t<p.duration;t++){
     const h=t%24, storm=t>=2, damaged=storm?p.panelDamage/100:0;
@@ -48,16 +49,20 @@ export function simulate(input, type="resiliente") {
       const ratio=totalDemand?Math.min(1,supply/totalDemand):1;demands.forEach(l=>served[l.id]=l.demand*ratio);
     }else{ orderLoads(demands,p.strategy).forEach(l=>{served[l.id]=Math.min(l.demand,supply);supply-=served[l.id]}); }
     let unserved=0,criticalStep=0;demands.forEach(l=>{const miss=l.demand-(served[l.id]||0);unserved+=miss;if(l.critical)criticalStep+=miss;if(l.demand>0){requestedHours[l.id]++;if(miss<.01)uptime[l.id]++;}});
+    if(criticalStep>.01){criticalBlackoutRun++;maxCriticalBlackoutRun=Math.max(maxCriticalBlackoutRun,criticalBlackoutRun);}else criticalBlackoutRun=0;
     if(criticalStep>.01&&firstCriticalBlackout===null){firstCriticalBlackout=t;events.push({t,label:`Primeiro blackout crítico: hora ${t}`,kind:"blackout"});}
     if(t===2)events.push({t,label:"O ciclone atingiu o sistema",kind:"storm"});if(t===p.roadsClose)events.push({t,label:"Estradas interrompidas",kind:"road"});if(t===p.flightWindow)events.push({t,label:"Janela segura para drones",kind:"drone"});if(bio>0&&!result.some(r=>r.bio>0))events.push({t,label:"Biomassa accionada",kind:"bio"});
     const used=bio*p.specificConsumption/Math.max(.1,p.biomassEfficiency/100);fuel=Math.max(0,fuel-used);biomassUsed+=used;totalUnserved+=unserved;criticalUnserved+=criticalStep;
     result.push({t,solar,bio,demand:totalDemand,discharge:dischargeOut,soc:battery/p.batteryKwh*100,unserved,criticalUnserved:criticalStep,served});
   }
   const up=id=>requestedHours[id]?uptime[id]/requestedHours[id]*100:100, waterServed=result.reduce((s,r)=>s+(r.served.agua||0),0)*p.waterLitresPerKwh;
+  const waterByDay=Array.from({length:Math.ceil(p.duration/24)},(_,day)=>result.filter(r=>Math.floor(r.t/24)===day).reduce((s,r)=>s+(r.served.agua||0),0)*p.waterLitresPerKwh);
   const criticalDemand=result.reduce((s,r)=>s+p.loads.filter(l=>l.critical).reduce((x,l)=>x+(active(l,r.t%24)?l.power*(r.t>=2?l.surge:1):0),0),0);
   const isolatedScore=criticalDemand?Math.max(0,1-criticalUnserved/criticalDemand)*100:100;
   const resilience=.4*up("saude")+.25*Math.min(100,waterServed/(p.people*15*3)*100)+.2*up("comms")+.15*isolatedScore;
-  return {series:result,events,summary:{firstBlackout:firstCriticalBlackout,healthUptime:up("saude"),commsUptime:up("comms"),waterLitres:waterServed,totalUnserved,criticalUnserved,finalSoc:battery/p.batteryKwh*100,biomassUsed,biomassRemaining:fuel,resilience,peopleProtected:Math.round(p.people*isolatedScore/100)}};
+  const survival={health:up("saude")>=p.healthUptimeTarget,comms:up("comms")>=p.commsUptimeTarget,water:waterByDay.length>=3&&waterByDay.slice(0,3).every(v=>v>=p.dailyWaterTargetLitres),blackout:maxCriticalBlackoutRun*60<=p.maxCriticalBlackoutMinutes};
+  survival.joint=survival.health&&survival.comms&&survival.water&&survival.blackout;
+  return {series:result,events,summary:{firstBlackout:firstCriticalBlackout,healthUptime:up("saude"),commsUptime:up("comms"),waterLitres:waterServed,waterByDay,maxCriticalBlackoutMinutes:maxCriticalBlackoutRun*60,totalUnserved,criticalUnserved,finalSoc:battery/p.batteryKwh*100,biomassUsed,biomassRemaining:fuel,resilience,peopleProtected:Math.round(p.people*isolatedScore/100),survival}};
 }
 
 export function compare(params){return {convencional:simulate(params,"convencional"),resiliente:simulate(params,"resiliente")};}
