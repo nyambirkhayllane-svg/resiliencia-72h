@@ -119,6 +119,30 @@ export function simulate(input, type="resiliente") {
 
 export function compare(params){return {convencional:simulate(params,"convencional"),resiliente:simulate(params,"resiliente")};}
 
-export function validateMission(drone,community,weather,kits){
-  const errors=[];if(weather.hour<weather.flightWindow)errors.push(`Janela segura abre na hora ${weather.flightWindow}`);if(weather.wind>drone.maxWind)errors.push("Vento acima do limite seguro");if(community.distance*2>drone.range)errors.push("Alcance de ida e volta insuficiente");if(drone.payload<kits.mass)errors.push("Carga útil excedida");if(kits.available<1)errors.push("Sem kits disponíveis");if(!drone.available)errors.push("Drone indisponível");return {ok:!errors.length,errors,time:drone.prep+community.distance*2/drone.speed*60,energy:kits.energy};
+export function kitAutonomy(usableEnergy, profile, maxPower=Infinity,startHour=0){
+  if(usableEnergy<=0||!profile?.length)return 0;
+  let energy=usableEnergy,hours=0,index=0;
+  while(energy>1e-9&&hours<720){
+    const demand=profile[(startHour+index)%profile.length];
+    if(demand>maxPower+1e-9)return 0;
+    if(demand>0){const step=Math.min(1,energy/demand);hours+=step;energy-=demand*step;if(step<1)break;}else hours++;
+    index++;
+  }
+  return hours;
+}
+
+export function validateMission(drone,community,weather,kit){
+  const errors=[],profile=kit.loadProfile||[],peak=Math.max(0,...profile),beforeEnergy=community.serviceEnergy?.[kit.service]||0;
+  const autonomyBefore=kitAutonomy(beforeEnergy,profile,kit.maxPowerKw,weather.hour%24),autonomyAfter=kitAutonomy(beforeEnergy+kit.usableKwh,profile,kit.maxPowerKw,weather.hour%24);
+  const recoveredHours=Math.max(0,autonomyAfter-autonomyBefore);
+  if(weather.hour<weather.flightWindow)errors.push(`Janela segura abre na hora ${weather.flightWindow}`);
+  if(weather.wind>drone.maxWind)errors.push("Vento acima do limite seguro");
+  if(community.distance*2>drone.range)errors.push("Alcance de ida e volta insuficiente");
+  if(kit.totalMassKg>drone.payload)errors.push(`Massa total de ${kit.totalMassKg} kg excede a carga útil`);
+  if(kit.available<1)errors.push("Kit selecionado indisponível");
+  if(!drone.available)errors.push("Drone indisponível");
+  if(!community.services?.includes(kit.service))errors.push("Serviço incompatível com esta comunidade");
+  if(peak>kit.maxPowerKw+1e-9)errors.push(`Potência do kit insuficiente para o pico de ${peak} kW`);
+  if(recoveredHours<.25)errors.push("Energia insuficiente para benefício mensurável");
+  return {ok:!errors.length,errors,time:drone.prep+community.distance*2/drone.speed*60,energy:kit.usableKwh,peakKw:peak,autonomyBefore,autonomyAfter,recoveredHours};
 }
