@@ -14,5 +14,6 @@
 - Estado de flutuação, guias, cabos e isolamento elétrico.
 - Garantia sem solar, orçamento energético, margem e deslocamento por massa.
 - Linha temporal de SOC, inundação, procura P1 e eventos.
-- Uptime individual das três cargas P1 e decisão operacional.
+- Disponibilidade individual dos três serviços P1: comunicações, conservação de medicamentos e água entregue.
 - Probabilidade Monte Carlo de preservar todas as cargas P1.
+- CSV com fluxos elétricos, depósito, reserva térmica, pack, métricas físicas e estados de segurança.

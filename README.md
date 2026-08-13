@@ -13,6 +13,8 @@ Protótipo interativo de um sistema solar anfíbio para preservar cargas vitais 
 
 Os valores são ilustrativos e devem ser validados por ensaios, projeto estrutural, proteção elétrica certificada e cotações locais.
 
+O critério de sucesso é orientado aos serviços: comunicações podem usar o pack independente, medicamentos podem usar reserva térmica e água depende do volume realmente entregue pelo depósito. O modelo normaliza entradas inválidas e não permite que uma bateria abaixo da reserva crie energia.
+
 ## Executar
 
 Abra `index.html` ou inicie o servidor usado pelos testes:
