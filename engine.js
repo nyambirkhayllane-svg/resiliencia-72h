@@ -31,6 +31,7 @@ export function simulate(input, type="resiliente") {
   const intervalHours=p.timeStepHours??.25,steps=Math.round(p.duration/intervalHours),stepsPerDay=Math.round(24/intervalHours);
   const usableFloor = Math.max((1-p.maxDod/100)*p.batteryKwh, p.reserve/100*p.batteryKwh);
   let battery = p.batteryKwh*p.initialSoc/100, fuel=p.biomassKg, firstCriticalBlackout=null, totalUnserved=0, criticalUnserved=0, biomassUsed=0, dailyBiomassUsed=0, fuelExhaustedAt=null, curtailed=0, criticalBlackoutRun=0, maxCriticalBlackoutRun=0;
+  const biomassEventKeys=new Set();
   const uptime=Object.fromEntries(p.loads.map(l=>[l.id,0])), requestedHours=Object.fromEntries(p.loads.map(l=>[l.id,0]));
   for(let step=0;step<steps;step++){
     const t=step*intervalHours,h=t%24, storm=t>=2, damaged=storm?p.panelDamage/100:0;
@@ -40,22 +41,21 @@ export function simulate(input, type="resiliente") {
     const demands=p.loads.map(l=>({ ...l, demand:active(l,h)?l.power*(storm?l.surge:1):0 }));
     const totalDemand=demands.reduce((s,l)=>s+l.demand,0);
     let bioRequested=0,bio=0,bioEnergy=0,bioFuelUsed=0,humidityReduction=0;
-    let biomassLimitation="Gerador não aplicável ao sistema convencional";
+    let biomassLimitation="Gerador não aplicável ao sistema convencional",biomassState="not_applicable";
+    let nominalCap=0,humidityCap=0,fuelCap=0,dailyCap=0;
     const fuelBefore=fuel;
     if(type==="resiliente"){
-      if(!p.biomassAvailable)biomassLimitation="Gerador indisponível";
-      else if(fuel<=0)biomassLimitation="Combustível de biomassa esgotado";
+      nominalCap=p.biomassKw;humidityCap=nominalCap*(p.wetFuel?.65:1);
+      fuelCap=fuel/(p.specificConsumption*intervalHours);
+      dailyCap=Math.max(0,p.dailyFuelLimit-dailyBiomassUsed)/(p.specificConsumption*intervalHours);
+      if(!p.biomassAvailable){biomassLimitation="Gerador indisponível por avaria ou restrição operacional";biomassState="unavailable";}
+      else if(fuel<=.001){biomassLimitation="Combustível de biomassa fisicamente esgotado";biomassState="fuel_exhausted";}
       else{
         const forecastRisk=battery<usableFloor+p.batteryKwh*.28||solar<totalDemand*.55;
-        if(!forecastRisk)biomassLimitation="Arranque não solicitado pelo controlador";
+        if(!forecastRisk){biomassLimitation="Arranque não solicitado pelo controlador";biomassState="standby";}
         else{
           const chargeRequest=Math.min(p.maxChargeKw,Math.max(0,usableFloor+p.batteryKwh*.28-battery)/intervalHours);
           bioRequested=Math.max(p.biomassMin,totalDemand-solar+chargeRequest);
-          const humidityFactor=p.wetFuel?.65:1;
-          const nominalCap=p.biomassKw,humidityCap=nominalCap*humidityFactor;
-          const fuelCap=fuel/(p.specificConsumption*intervalHours);
-          const dailyFuelRemaining=Math.max(0,p.dailyFuelLimit-dailyBiomassUsed);
-          const dailyCap=dailyFuelRemaining/(p.specificConsumption*intervalHours);
           const availablePower=Math.min(bioRequested,nominalCap,humidityCap,fuelCap,dailyCap);
           humidityReduction=Math.max(0,Math.min(bioRequested,nominalCap)-Math.min(bioRequested,humidityCap));
           const limitations=[];
@@ -63,8 +63,9 @@ export function simulate(input, type="resiliente") {
           if(p.wetFuel&&humidityCap<Math.min(bioRequested,nominalCap)-.001)limitations.push("Combustível húmido reduziu a potência");
           if(fuelCap<Math.min(bioRequested,nominalCap,humidityCap)-.001)limitations.push("Combustível restante limitou a produção");
           if(dailyCap<Math.min(bioRequested,nominalCap,humidityCap,fuelCap)-.001)limitations.push("Limite diário de combustível atingido");
-          if(availablePower>0&&availablePower<p.biomassMin)biomassLimitation=[...limitations,"Potência disponível inferior à potência mínima estável"].join("; ");
-          else{bio=Math.max(0,availablePower);biomassLimitation=limitations.join("; ")||"Sem limitação ativa";}
+          if(dailyCap<p.biomassMin-.001&&fuelCap>=p.biomassMin-.001&&fuel>.001){biomassState="daily_limit";biomassLimitation="Limite diário de combustível atingido";}
+          else if(availablePower>0&&availablePower<p.biomassMin){biomassState=p.wetFuel?"unavailable":"power_limited";biomassLimitation=[...limitations,"Potência disponível inferior à potência mínima estável"].join("; ");}
+          else{bio=Math.max(0,availablePower);biomassLimitation=limitations.join("; ")||"Sem limitação ativa";biomassState=limitations.length?"power_limited":"producing";}
         }
       }
     }
@@ -72,7 +73,8 @@ export function simulate(input, type="resiliente") {
     bioFuelUsed=bioEnergy*p.specificConsumption;
     fuel=Math.max(0,fuel-bioFuelUsed);biomassUsed+=bioFuelUsed;dailyBiomassUsed+=bioFuelUsed;
     if(fuelExhaustedAt===null&&fuelBefore>0&&fuel<=.001)fuelExhaustedAt=t+intervalHours;
-    const biomassHoursRemaining=fuel<=0?0:bioFuelUsed>0?fuel/bioFuelUsed*intervalHours:null;
+    const futureUsablePower=p.biomassAvailable?Math.min(p.biomassKw,p.biomassKw*(p.wetFuel?.65:1),p.dailyFuelLimit/(p.specificConsumption*24)):0;
+    const biomassHoursRemaining=fuel<=.001?0:futureUsablePower>0?fuel/(futureUsablePower*p.specificConsumption):null;
     const biomassExhaustionHour=biomassHoursRemaining===null?null:t+intervalHours+biomassHoursRemaining;
     const generated=solar+bio; let direct=Math.min(generated,totalDemand), surplus=Math.max(0,generated-totalDemand), deficit=Math.max(0,totalDemand-generated);
     let charged=Math.min(surplus*intervalHours*p.chargeEfficiency/100,p.maxChargeKw*intervalHours,p.batteryKwh-battery); battery+=charged;curtailed+=Math.max(0,surplus*intervalHours-charged/(p.chargeEfficiency/100));
@@ -87,6 +89,7 @@ export function simulate(input, type="resiliente") {
     if(criticalStep>.01){criticalBlackoutRun++;maxCriticalBlackoutRun=Math.max(maxCriticalBlackoutRun,criticalBlackoutRun);}else criticalBlackoutRun=0;
     if(criticalStep>.01&&firstCriticalBlackout===null){firstCriticalBlackout=t;events.push({t,label:`Primeiro blackout crítico: hora ${t}`,kind:"blackout"});}
     if(t===2)events.push({t,label:"O ciclone atingiu o sistema",kind:"storm"});if(t===p.roadsClose)events.push({t,label:"Estradas interrompidas",kind:"road"});if(t===p.flightWindow)events.push({t,label:"Janela segura para drones",kind:"drone"});if(bio>0&&!result.some(r=>r.bio>0))events.push({t,label:"Biomassa accionada",kind:"bio"});
+    if(biomassState==="daily_limit"&&!biomassEventKeys.has(`daily-${Math.floor(t/24)}`)){events.push({t,label:`Geração por biomassa suspensa — limite diário atingido; ${fuel.toFixed(0)} kg permanecem em reserva.`,kind:"fuel-limit"});biomassEventKeys.add(`daily-${Math.floor(t/24)}`);}
     totalUnserved+=unserved*intervalHours;criticalUnserved+=criticalStep*intervalHours;
     if(criticalStep>.01){
       const causes=[];
@@ -105,7 +108,7 @@ export function simulate(input, type="resiliente") {
       const affected=criticalLoads.filter(l=>l.demand-(served[l.id]||0)>.01),affectedDemand=affected.reduce((sum,l)=>sum+l.demand,0),affectedServed=affected.reduce((sum,l)=>sum+(served[l.id]||0),0),affectedDeficit=affectedDemand-affectedServed;
       affected.forEach(l=>diagnostics.push({t,serviceId:l.id,service:l.nome,demand:l.demand,served:served[l.id]||0,unserved:l.demand-(served[l.id]||0),criticalDemand:criticalDemandNow,criticalServed,criticalDeficit:criticalDemandNow-criticalServed,affectedDemand,affectedServed,affectedDeficit,solarUsable:solar,biomassUsable:bio,batteryDischargeAllowed:dischargeOut,grossTheoreticalSupply,usableSupply,allocatedTotal,allocations:{...served},systemLosses,soc:battery/p.batteryKwh*100,reserveSoc:usableFloor/p.batteryKwh*100,fuelRemaining:fuel,loadAction:(served[l.id]||0)<.01?"Desligada":"Parcialmente desligada",primaryCause:causes[0]?.label||"Energia insuficiente após restrições e distribuição",contributingCauses:causes.slice(1,4).map(c=>c.label),causeCodes:causes.map(c=>c.code)}));
     }
-    result.push({t,solar,bio,demand:totalDemand,criticalDemand:criticalDemandNow,criticalServed,discharge:dischargeOut,grossTheoreticalSupply,usableSupply,allocatedTotal,systemLosses,soc:battery/p.batteryKwh*100,fuelRemaining:fuel,biomassRequestedKw:bioRequested,biomassProducedKw:bio,biomassEnergyKwh:bioEnergy,biomassFuelUsedKg:bioFuelUsed,biomassUsedKg:biomassUsed,biomassHumidityReductionKw:humidityReduction,biomassHoursRemaining,biomassExhaustionHour,biomassLimitation,reserveSoc:usableFloor/p.batteryKwh*100,unserved,criticalUnserved:criticalStep,served});
+    result.push({t,solar,bio,demand:totalDemand,criticalDemand:criticalDemandNow,criticalServed,discharge:dischargeOut,grossTheoreticalSupply,usableSupply,allocatedTotal,systemLosses,soc:battery/p.batteryKwh*100,fuelRemaining:fuel,biomassRequestedKw:bioRequested,biomassNominalKw:p.biomassKw,biomassFuelPowerCapKw:fuelCap,biomassDailyPowerCapKw:dailyCap,biomassProducedKw:bio,biomassEnergyKwh:bioEnergy,biomassFuelUsedKg:bioFuelUsed,biomassUsedKg:biomassUsed,biomassHumidityReductionKw:humidityReduction,biomassHoursRemaining,biomassExhaustionHour,biomassState,biomassLimitation,reserveSoc:usableFloor/p.batteryKwh*100,unserved,criticalUnserved:criticalStep,served});
   }
   const up=id=>requestedHours[id]?uptime[id]/requestedHours[id]*100:100, waterServed=result.reduce((s,r)=>s+(r.served.agua||0)*intervalHours,0)*p.waterLitresPerKwh;
   const waterByDay=Array.from({length:Math.ceil(p.duration/24)},(_,day)=>result.filter(r=>Math.floor(r.t/24)===day).reduce((s,r)=>s+(r.served.agua||0)*intervalHours,0)*p.waterLitresPerKwh);
